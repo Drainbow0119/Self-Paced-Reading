@@ -1,0 +1,6 @@
+{
+  "name": "Self-Paced Reading Experiment",
+  "description": "A linguistics self-paced reading experiment tool for measuring word-by-word reaction times and garden-path sentence processing effects across desktop and mobile devices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
