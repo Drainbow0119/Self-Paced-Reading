@@ -8,17 +8,19 @@ import {
   PRACTICE_SENTENCES,
   GRADED_TESTS,
   TestGroup,
+  QuestionLevel,
   SentenceItem,
   getRandomTestGroup,
 } from './data/sentences';
 
 type ExperimentPhase = 'intro' | 'running' | 'complete';
-type TrialStage = 'ready' | 'reading' | 'question';
+type TrialStage = 'level_notice' | 'ready' | 'reading' | 'question';
 
 export interface TrialResult {
   trialNumber: number;
   isPractice: boolean;
   testGroup: TestGroup;
+  level: QuestionLevel;
   wordCount: number; // $l
   totalTime: number; // $totalTime (ms)
   sentence: string; // %sentence
@@ -47,7 +49,8 @@ export default function App() {
   const wordStartTimeRef = useRef<number>(0);
   const lastPointerTimeRef = useRef<number>(0);
 
-  // Build the 10-trial sequence: 2 practice tests (not graded) + 8 graded tests (from R1-R4)
+  // Build the 10-trial sequence:
+  // 2 practice tests (not graded) + 8 graded tests (4 Level 1 followed by 4 Level 2)
   const trialQueue: QueuedTrial[] = useMemo(() => {
     const practiceTrials: QueuedTrial[] = PRACTICE_SENTENCES.map((item, idx) => ({
       item,
@@ -127,14 +130,13 @@ export default function App() {
         setWordIndex(wordIndex + 1);
         wordStartTimeRef.current = performance.now();
       } else {
-        // Finished the last word of the sentence -> show the Yes/No word question
+        // Finished the last word of the sentence -> show the post-sentence question
         setTrialStage('question');
       }
     }
   };
 
-  // Answered Yes or No to "Did the word ~~~ appear in the sentence?"
-  // Per instructions: do not proceed until answered; no need to save right/wrong correctness.
+  // Answered post-sentence question (Level 1 Yes/No or Level 2 4-option theme question)
   const handleAnswerQuestion = () => {
     const totalTime = currentReactionTimes.reduce((sum, val) => sum + val, 0);
 
@@ -142,6 +144,7 @@ export default function App() {
       trialNumber: currentTrial.trialNumber,
       isPractice: currentTrial.isPractice,
       testGroup,
+      level: currentTrial.item.level,
       wordCount: currentWords.length,
       totalTime,
       sentence: currentTrial.item.sentence,
@@ -153,10 +156,22 @@ export default function App() {
     setResults(nextResults);
 
     if (currentTrialIndex + 1 < trialQueue.length) {
+      const nextTrial = trialQueue[currentTrialIndex + 1];
       setCurrentTrialIndex(currentTrialIndex + 1);
-      setTrialStage('ready');
       setWordIndex(0);
       setCurrentReactionTimes([]);
+
+      // Boundary between Graded Question #4 (end of Level 1) and Question #5 (start of Level 2)
+      if (
+        !currentTrial.isPractice &&
+        currentTrial.trialNumber === 4 &&
+        !nextTrial.isPractice &&
+        nextTrial.trialNumber === 5
+      ) {
+        setTrialStage('level_notice');
+      } else {
+        setTrialStage('ready');
+      }
     } else {
       setPhase('complete');
     }
@@ -173,30 +188,32 @@ export default function App() {
   );
 
   // Format data for clipboard & "copy data to clipboard" screen
-  // Includes Test Type (R1~R4) prominently plus baseline save fields: $l $totalTime %sentence &&reactionTimes
+  // Includes Test Type (R1~R4) and Level (Level 1 / Level 2) plus baseline save fields: $l $totalTime %sentence &&reactionTimes
   const clipboardText = useMemo(() => {
     const lines: string[] = [];
     lines.push(`Test Type: ${testGroup}`);
     lines.push(
-      `Columns:\tTest_Type\tTrial\tWord_Count($l)\tTotal_Time_ms($totalTime)\tSentence(%sentence)\tReaction_Times_ms(&&reactionTimes)`
+      `Columns:\tTest_Type\tLevel\tTrial\tWord_Count($l)\tTotal_Time_ms($totalTime)\tSentence(%sentence)\tReaction_Times_ms(&&reactionTimes)`
     );
 
     displayedResults.forEach((row) => {
       const trialLabel = row.isPractice
         ? `Practice_${row.trialNumber}`
         : `${row.testGroup}_${row.trialNumber}`;
+      const levelLabel = row.isPractice ? 'Practice' : `Level_${row.level}`;
       const rtString = row.reactionTimes.join(' ');
       lines.push(
-        `${row.testGroup}\t${trialLabel}\t${row.wordCount}\t${row.totalTime}\t"${row.sentence}"\t${rtString}`
+        `${row.testGroup}\t${levelLabel}\t${trialLabel}\t${row.wordCount}\t${row.totalTime}\t"${row.sentence}"\t${rtString}`
       );
     });
 
     lines.push('');
     lines.push(`--- Baseline Save Format (Test: ${testGroup}) ---`);
     displayedResults.forEach((row) => {
+      const levelTag = row.isPractice ? 'Practice' : `L${row.level}`;
       const rtString = row.reactionTimes.join(' ');
       lines.push(
-        `${row.testGroup} ${row.wordCount} ${row.totalTime} "${row.sentence}" ${rtString}`
+        `${row.testGroup} [${levelTag}] ${row.wordCount} ${row.totalTime} "${row.sentence}" ${rtString}`
       );
     });
 
@@ -239,8 +256,18 @@ export default function App() {
           <div className="space-y-4 text-[18px] sm:text-[20px] leading-relaxed mb-8">
             <p>
               This experiment consists of <strong>2 practice sentences</strong> (not graded)
-              followed by <strong>8 graded sentences</strong>.
+              followed by <strong>8 graded sentences</strong> divided into two levels:
             </p>
+            <ul className="list-disc pl-6 space-y-2">
+              <li>
+                <strong>Level 1 (Sentences 1–4):</strong> Followed by a Yes / No word check
+                question.
+              </li>
+              <li>
+                <strong>Level 2 (Sentences 5–8):</strong> Followed by a 4-option comprehension
+                question about the theme of the sentence.
+              </li>
+            </ul>
             <p>
               During each sentence, all words are hidden with lines (
               <span className="font-mono">----</span>) except the word you are currently reading.
@@ -249,11 +276,6 @@ export default function App() {
               <strong>How to advance:</strong> Use a <strong>left click</strong> (laptop/desktop)
               or <strong>tap on the screen</strong> (mobile device) to reveal the first word and
               each following word at your natural reading pace.
-            </p>
-            <p>
-              After the last word of each sentence, you will answer a simple{' '}
-              <strong>Yes / No</strong> question about whether a specific word appeared in the
-              sentence before moving on.
             </p>
           </div>
 
@@ -269,11 +291,56 @@ export default function App() {
     );
   }
 
-  // 2. RUNNING EXPERIMENT SCREEN (READY / READING / QUESTION)
+  // 2. RUNNING EXPERIMENT SCREEN (LEVEL NOTICE / READY / READING / QUESTION)
   if (phase === 'running' && currentTrial) {
     const sectionLabel = currentTrial.isPractice
       ? `Practice Test ${currentTrial.trialNumber} of ${PRACTICE_SENTENCES.length} (Not Graded)`
-      : `Graded Test ${currentTrial.trialNumber} of ${GRADED_TESTS[testGroup].length}`;
+      : `Graded Test ${currentTrial.trialNumber} of ${GRADED_TESTS[testGroup].length} — Level ${currentTrial.item.level}`;
+
+    // Stage 0: Boundary Notice between Graded Sentence #4 (Level 1) and Graded Sentence #5 (Level 2)
+    if (trialStage === 'level_notice') {
+      return (
+        <main className="min-h-screen w-full bg-white text-black flex flex-col justify-between px-6 py-8 select-none">
+          <div className="w-full max-w-4xl mx-auto flex items-center justify-between text-sm text-black border-b border-black/20 pb-3">
+            <span>Level Transition Notice</span>
+            <span>Up Next: Sentence 5 of 8 (Level 2)</span>
+          </div>
+
+          <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto my-8">
+            <div className="w-full border-2 border-black p-8 sm:p-10 text-center space-y-6">
+              <p className="text-sm font-bold uppercase tracking-widest">
+                Notice: Level Change (Level 1 &rarr; Level 2)
+              </p>
+              <h2 className="text-2xl sm:text-3xl font-bold">
+                Entering Level 2 — Higher Focus Required
+              </h2>
+              <p className="text-[18px] sm:text-[20px] leading-relaxed">
+                You have completed the 4 Level 1 sentences. The remaining 4 sentences (Sentences
+                5 to 8) are <strong>Level 2</strong>.
+              </p>
+              <p className="text-[18px] sm:text-[20px] leading-relaxed">
+                After each Level 2 sentence, you will answer a{' '}
+                <strong>4-option question (a, b, c, d)</strong> about the theme and meaning of the
+                sentence. Please read carefully with heightened focus.
+              </p>
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={() => setTrialStage('ready')}
+                  className="px-8 py-4 text-[18px] sm:text-[20px] font-medium bg-black text-white border-2 border-black hover:bg-neutral-800 active:bg-neutral-900 cursor-pointer transition-colors"
+                >
+                  Continue to Level 2 (Sentence 5 of 8)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full max-w-4xl mx-auto text-center text-sm text-black pt-3 border-t border-black/20">
+            Click or tap the button above when you are ready to focus on Level 2
+          </div>
+        </main>
+      );
+    }
 
     // Stage A & B: 'ready' or 'reading' -> clicking/tapping anywhere on the screen advances
     if (trialStage === 'ready' || trialStage === 'reading') {
@@ -301,7 +368,12 @@ export default function App() {
               <div className="text-center space-y-6 max-w-2xl">
                 {!currentTrial.isPractice && currentTrial.trialNumber === 1 && (
                   <p className="text-[18px] sm:text-[20px] font-bold pb-2 border-b border-black inline-block px-4">
-                    Practice complete. Beginning Graded Test.
+                    Practice complete. Beginning Graded Test — Level 1 (Sentences 1–4).
+                  </p>
+                )}
+                {!currentTrial.isPractice && currentTrial.trialNumber === 5 && (
+                  <p className="text-[18px] sm:text-[20px] font-bold pb-2 border-b border-black inline-block px-4">
+                    Graded Test — Level 2 (Sentences 5–8): High Focus Mode
                   </p>
                 )}
                 <p className="text-[20px] sm:text-[22px] leading-relaxed">
@@ -338,44 +410,78 @@ export default function App() {
       );
     }
 
-    // Stage C: 'question' -> Yes/No comprehension check
-    // Does not proceed until Yes or No button is pressed
+    // Stage C: 'question' ->
+    // Practice & Level 1: Yes/No word check ("Did the word ~~~ appear in the sentence?")
+    // Level 2: 4-option comprehension question about the theme of the sentence (a, b, c, d)
+    const isLevel2Question =
+      !currentTrial.isPractice &&
+      currentTrial.item.level === 2 &&
+      Boolean(currentTrial.item.themeQuestion);
+
     return (
       <main className="min-h-screen w-full bg-white text-black flex flex-col justify-between px-6 py-8 select-none">
         <div className="w-full max-w-4xl mx-auto flex items-center justify-between text-sm text-black border-b border-black/20 pb-3">
           <span>{sectionLabel}</span>
-          <span>Question</span>
+          <span>{isLevel2Question ? 'Level 2 Theme Question' : 'Question'}</span>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto my-8 text-center">
-          <p
-            className="text-[22px] sm:text-[26px] mb-10 leading-relaxed"
-            style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
-          >
-            Did the word <strong>&ldquo;{currentTrial.item.targetWord}&rdquo;</strong> appear in the
-            sentence?
-          </p>
+          {isLevel2Question && currentTrial.item.themeQuestion ? (
+            <div className="w-full">
+              <p
+                className="text-[22px] sm:text-[26px] font-bold mb-8 leading-relaxed"
+                style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+              >
+                {currentTrial.item.themeQuestion.prompt}
+              </p>
 
-          <div className="flex items-center justify-center gap-6 sm:gap-10 w-full max-w-md">
-            <button
-              type="button"
-              onClick={handleAnswerQuestion}
-              className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
-            >
-              Yes
-            </button>
-            <button
-              type="button"
-              onClick={handleAnswerQuestion}
-              className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
-            >
-              No
-            </button>
-          </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-xl mx-auto text-left">
+                {currentTrial.item.themeQuestion.options.map((optionText, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={handleAnswerQuestion}
+                    className="py-4 px-6 text-[18px] sm:text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors text-left"
+                  >
+                    {optionText}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="w-full flex flex-col items-center">
+              <p
+                className="text-[22px] sm:text-[26px] mb-10 leading-relaxed"
+                style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+              >
+                Did the word <strong>&ldquo;{currentTrial.item.targetWord}&rdquo;</strong> appear in
+                the sentence?
+              </p>
+
+              <div className="flex items-center justify-center gap-6 sm:gap-10 w-full max-w-md">
+                <button
+                  type="button"
+                  onClick={handleAnswerQuestion}
+                  className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAnswerQuestion}
+                  className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
+                >
+                  No
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="w-full max-w-4xl mx-auto text-center text-sm text-black pt-3 border-t border-black/20">
-          Please select Yes or No to proceed to the next sentence
+          {isLevel2Question
+            ? 'Please select one of the four options (a, b, c, or d) to proceed to the next sentence'
+            : 'Please select Yes or No to proceed to the next sentence'}
         </div>
       </main>
     );
@@ -395,8 +501,8 @@ export default function App() {
               Assigned Graded Test: <span className="underline">{testGroup}</span>
             </h1>
             <p className="text-base mt-1">
-              Subject completed 2 practice tests and 8 graded tests from group{' '}
-              <strong>{testGroup}</strong>.
+              Subject completed 2 practice tests and 8 graded tests (4 Level 1 + 4 Level 2) from
+              group <strong>{testGroup}</strong>.
             </p>
           </div>
 
@@ -420,7 +526,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Dedicated "Copy Data to Clipboard" Screen / Box (Always visible or focused when toggled) */}
+        {/* Dedicated "Copy Data to Clipboard" Screen / Box */}
         <section className="border border-black p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 mb-4 border-b border-black">
             <div>
@@ -428,8 +534,8 @@ export default function App() {
                 Copy Data to Clipboard — Test Type: {testGroup}
               </h2>
               <p className="text-sm mt-1">
-                Includes test group (<strong>{testGroup}</strong>), word count (
-                <code className="font-mono">$l</code>), total reading time in ms (
+                Includes test group (<strong>{testGroup}</strong>), level (Level 1 / Level 2), word
+                count (<code className="font-mono">$l</code>), total reading time in ms (
                 <code className="font-mono">$totalTime</code>), sentence (
                 <code className="font-mono">%sentence</code>), and word-by-word reaction times in
                 ms (<code className="font-mono">&amp;&amp;reactionTimes</code>).
@@ -488,10 +594,13 @@ export default function App() {
                 <thead>
                   <tr className="border-b-2 border-black">
                     <th className="py-3 pr-4 font-bold">Test</th>
+                    <th className="py-3 px-3 font-bold">Level</th>
                     <th className="py-3 px-3 font-bold">Trial</th>
                     <th className="py-3 px-3 font-bold">Words ($l)</th>
                     <th className="py-3 px-3 font-bold">Total Time ($totalTime)</th>
-                    <th className="py-3 px-3 font-bold">Sentence (%sentence) &amp; Word RTs (&amp;&amp;reactionTimes)</th>
+                    <th className="py-3 px-3 font-bold">
+                      Sentence (%sentence) &amp; Word RTs (&amp;&amp;reactionTimes)
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/30">
@@ -499,6 +608,9 @@ export default function App() {
                     <tr key={idx} className="align-top">
                       <td className="py-4 pr-4 font-mono font-bold whitespace-nowrap">
                         {row.isPractice ? `${row.testGroup} (Practice)` : row.testGroup}
+                      </td>
+                      <td className="py-4 px-3 font-mono whitespace-nowrap">
+                        {row.isPractice ? 'Practice' : `Level ${row.level}`}
                       </td>
                       <td className="py-4 px-3 font-mono whitespace-nowrap">
                         {row.isPractice ? `P${row.trialNumber}` : `#${row.trialNumber}`}
