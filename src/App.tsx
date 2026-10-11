@@ -26,6 +26,10 @@ export interface TrialResult {
   sentence: string; // %sentence
   words: string[]; // %%words
   reactionTimes: number[]; // &&reactionTimes (ms)
+  questionPrompt: string;
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean; // Whether the question was answered right or wrong
 }
 
 interface QueuedTrial {
@@ -136,8 +140,12 @@ export default function App() {
     }
   };
 
-  // Answered post-sentence question (Level 1 Yes/No or Level 2 4-option theme question)
-  const handleAnswerQuestion = () => {
+  const advanceAfterQuestion = (
+    questionPrompt: string,
+    userAnswer: string,
+    correctAnswer: string,
+    isCorrect: boolean
+  ) => {
     const totalTime = currentReactionTimes.reduce((sum, val) => sum + val, 0);
 
     const completedRecord: TrialResult = {
@@ -150,6 +158,10 @@ export default function App() {
       sentence: currentTrial.item.sentence,
       words: currentWords,
       reactionTimes: currentReactionTimes,
+      questionPrompt,
+      userAnswer,
+      correctAnswer,
+      isCorrect,
     };
 
     const nextResults = [...results, completedRecord];
@@ -177,6 +189,31 @@ export default function App() {
     }
   };
 
+  // Answered Yes or No (Practice or Level 1)
+  const handleAnswerYesNo = (answeredYes: boolean) => {
+    const item = currentTrial.item;
+    const expectedYes = Boolean(item.correctYesNo);
+    const questionPrompt = item.aboutTopic
+      ? `Is this sentence about ${item.aboutTopic}?`
+      : `Did the word "${item.targetWord}" appear in the sentence?`;
+    const userAnswer = answeredYes ? 'Yes' : 'No';
+    const correctAnswer = expectedYes ? 'Yes' : 'No';
+    const isCorrect = answeredYes === expectedYes;
+
+    advanceAfterQuestion(questionPrompt, userAnswer, correctAnswer, isCorrect);
+  };
+
+  // Answered 4-option question (Level 2)
+  const handleAnswerMultipleChoice = (selectedIndex: number) => {
+    const themeQ = currentTrial.item.themeQuestion;
+    if (!themeQ) return;
+    const userAnswer = themeQ.options[selectedIndex];
+    const correctAnswer = themeQ.options[themeQ.correctIndex];
+    const isCorrect = selectedIndex === themeQ.correctIndex;
+
+    advanceAfterQuestion(themeQ.prompt, userAnswer, correctAnswer, isCorrect);
+  };
+
   const gradedResults = useMemo(
     () => results.filter((r) => !r.isPractice),
     [results]
@@ -187,13 +224,32 @@ export default function App() {
     [results, gradedResults, includePracticeInOutput]
   );
 
+  const accuracyStats = useMemo(() => {
+    const level1 = gradedResults.filter((r) => r.level === 1);
+    const level2 = gradedResults.filter((r) => r.level === 2);
+    const level1Correct = level1.filter((r) => r.isCorrect).length;
+    const level2Correct = level2.filter((r) => r.isCorrect).length;
+    const totalCorrect = gradedResults.filter((r) => r.isCorrect).length;
+    return {
+      totalCorrect,
+      totalGraded: gradedResults.length,
+      level1Correct,
+      level1Total: level1.length,
+      level2Correct,
+      level2Total: level2.length,
+    };
+  }, [gradedResults]);
+
   // Format data for clipboard & "copy data to clipboard" screen
-  // Includes Test Type (R1~R4) and Level (Level 1 / Level 2) plus baseline save fields: $l $totalTime %sentence &&reactionTimes
+  // Includes Test Type (R1~R4), Level, Question Result (Right/Wrong), and baseline save fields: $l $totalTime %sentence &&reactionTimes
   const clipboardText = useMemo(() => {
     const lines: string[] = [];
     lines.push(`Test Type: ${testGroup}`);
     lines.push(
-      `Columns:\tTest_Type\tLevel\tTrial\tWord_Count($l)\tTotal_Time_ms($totalTime)\tSentence(%sentence)\tReaction_Times_ms(&&reactionTimes)`
+      `Question Accuracy: ${accuracyStats.totalCorrect}/${accuracyStats.totalGraded} Right (Level 1: ${accuracyStats.level1Correct}/${accuracyStats.level1Total}, Level 2: ${accuracyStats.level2Correct}/${accuracyStats.level2Total})`
+    );
+    lines.push(
+      `Columns:\tTest_Type\tLevel\tTrial\tQuestion_Result\tUser_Answer\tCorrect_Answer\tWord_Count($l)\tTotal_Time_ms($totalTime)\tSentence(%sentence)\tReaction_Times_ms(&&reactionTimes)`
     );
 
     displayedResults.forEach((row) => {
@@ -201,9 +257,10 @@ export default function App() {
         ? `Practice_${row.trialNumber}`
         : `${row.testGroup}_${row.trialNumber}`;
       const levelLabel = row.isPractice ? 'Practice' : `Level_${row.level}`;
+      const resultLabel = row.isCorrect ? 'Right' : 'Wrong';
       const rtString = row.reactionTimes.join(' ');
       lines.push(
-        `${row.testGroup}\t${levelLabel}\t${trialLabel}\t${row.wordCount}\t${row.totalTime}\t"${row.sentence}"\t${rtString}`
+        `${row.testGroup}\t${levelLabel}\t${trialLabel}\t${resultLabel}\t"${row.userAnswer}"\t"${row.correctAnswer}"\t${row.wordCount}\t${row.totalTime}\t"${row.sentence}"\t${rtString}`
       );
     });
 
@@ -211,14 +268,15 @@ export default function App() {
     lines.push(`--- Baseline Save Format (Test: ${testGroup}) ---`);
     displayedResults.forEach((row) => {
       const levelTag = row.isPractice ? 'Practice' : `L${row.level}`;
+      const resultTag = row.isCorrect ? 'Right' : 'Wrong';
       const rtString = row.reactionTimes.join(' ');
       lines.push(
-        `${row.testGroup} [${levelTag}] ${row.wordCount} ${row.totalTime} "${row.sentence}" ${rtString}`
+        `${row.testGroup} [${levelTag}] [${resultTag}] ${row.wordCount} ${row.totalTime} "${row.sentence}" ${rtString}`
       );
     });
 
     return lines.join('\n');
-  }, [testGroup, displayedResults]);
+  }, [testGroup, displayedResults, accuracyStats]);
 
   const handleCopyToClipboard = async () => {
     try {
@@ -260,8 +318,8 @@ export default function App() {
             </p>
             <ul className="list-disc pl-6 space-y-2">
               <li>
-                <strong>Level 1 (Sentences 1–4):</strong> Followed by a Yes / No word check
-                question.
+                <strong>Level 1 (Sentences 1–4):</strong> Followed by a Yes / No question (
+                <em>&ldquo;Is this sentence about ~~~?&rdquo;</em>).
               </li>
               <li>
                 <strong>Level 2 (Sentences 5–8):</strong> Followed by a 4-option comprehension
@@ -411,7 +469,8 @@ export default function App() {
     }
 
     // Stage C: 'question' ->
-    // Practice & Level 1: Yes/No word check ("Did the word ~~~ appear in the sentence?")
+    // Practice: Yes/No word check ("Did the word ~~~ appear in the sentence?")
+    // Level 1: Yes/No single-word topic check ("Is this sentence about ~~~?")
     // Level 2: 4-option comprehension question about the theme of the sentence (a, b, c, d)
     const isLevel2Question =
       !currentTrial.isPractice &&
@@ -440,7 +499,7 @@ export default function App() {
                   <button
                     key={idx}
                     type="button"
-                    onClick={handleAnswerQuestion}
+                    onClick={() => handleAnswerMultipleChoice(idx)}
                     className="py-4 px-6 text-[18px] sm:text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors text-left"
                   >
                     {optionText}
@@ -454,21 +513,29 @@ export default function App() {
                 className="text-[22px] sm:text-[26px] mb-10 leading-relaxed"
                 style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
               >
-                Did the word <strong>&ldquo;{currentTrial.item.targetWord}&rdquo;</strong> appear in
-                the sentence?
+                {currentTrial.item.aboutTopic ? (
+                  <>
+                    Is this sentence about <strong>{currentTrial.item.aboutTopic}</strong>?
+                  </>
+                ) : (
+                  <>
+                    Did the word <strong>&ldquo;{currentTrial.item.targetWord}&rdquo;</strong>{' '}
+                    appear in the sentence?
+                  </>
+                )}
               </p>
 
               <div className="flex items-center justify-center gap-6 sm:gap-10 w-full max-w-md">
                 <button
                   type="button"
-                  onClick={handleAnswerQuestion}
+                  onClick={() => handleAnswerYesNo(true)}
                   className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
                 >
                   Yes
                 </button>
                 <button
                   type="button"
-                  onClick={handleAnswerQuestion}
+                  onClick={() => handleAnswerYesNo(false)}
                   className="flex-1 py-4 px-8 text-[20px] font-medium bg-white text-black border-2 border-black hover:bg-black hover:text-white active:bg-black active:text-white cursor-pointer transition-colors"
                 >
                   No
@@ -491,18 +558,26 @@ export default function App() {
   return (
     <main className="min-h-screen bg-white text-black px-4 sm:px-8 py-10">
       <div className="max-w-5xl mx-auto space-y-8">
-        {/* Top Summary Banner with prominent Test Group (R1~R4) */}
+        {/* Top Summary Banner with prominent Test Group (R1~R4) & Question Accuracy */}
         <div className="border-2 border-black p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <p className="text-sm uppercase tracking-wider font-bold mb-1">
+          <div className="space-y-1">
+            <p className="text-sm uppercase tracking-wider font-bold">
               Experiment Complete
             </p>
             <h1 className="text-2xl sm:text-3xl font-bold">
               Assigned Graded Test: <span className="underline">{testGroup}</span>
             </h1>
-            <p className="text-base mt-1">
+            <p className="text-base">
               Subject completed 2 practice tests and 8 graded tests (4 Level 1 + 4 Level 2) from
               group <strong>{testGroup}</strong>.
+            </p>
+            <p className="text-base pt-1">
+              <strong>Question Accuracy:</strong>{' '}
+              <span className="font-mono font-bold">
+                {accuracyStats.totalCorrect} / {accuracyStats.totalGraded} Right
+              </span>{' '}
+              (Level 1: {accuracyStats.level1Correct}/{accuracyStats.level1Total} Right &middot;
+              Level 2: {accuracyStats.level2Correct}/{accuracyStats.level2Total} Right)
             </p>
           </div>
 
@@ -534,8 +609,9 @@ export default function App() {
                 Copy Data to Clipboard — Test Type: {testGroup}
               </h2>
               <p className="text-sm mt-1">
-                Includes test group (<strong>{testGroup}</strong>), level (Level 1 / Level 2), word
-                count (<code className="font-mono">$l</code>), total reading time in ms (
+                Includes test group (<strong>{testGroup}</strong>), level (Level 1 / Level 2),
+                question result (<strong>Right / Wrong</strong>), word count (
+                <code className="font-mono">$l</code>), total reading time in ms (
                 <code className="font-mono">$totalTime</code>), sentence (
                 <code className="font-mono">%sentence</code>), and word-by-word reaction times in
                 ms (<code className="font-mono">&amp;&amp;reactionTimes</code>).
@@ -564,7 +640,8 @@ export default function App() {
           </div>
 
           <div className="mb-3 text-base font-bold">
-            Test Taken: {testGroup}
+            Test Taken: {testGroup} &mdash; Questions Answered Right:{' '}
+            {accuracyStats.totalCorrect} / {accuracyStats.totalGraded}
           </div>
 
           <textarea
@@ -582,7 +659,7 @@ export default function App() {
           <section className="border border-black p-6">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-black">
               <h2 className="text-xl font-bold">
-                Recorded Reading Times — Graded Test: {testGroup}
+                Recorded Reading Times &amp; Question Results — Graded Test: {testGroup}
               </h2>
               <span className="text-sm font-mono">
                 {displayedResults.length} sentences shown
@@ -593,20 +670,21 @@ export default function App() {
               <table className="w-full border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b-2 border-black">
-                    <th className="py-3 pr-4 font-bold">Test</th>
+                    <th className="py-3 pr-3 font-bold">Test</th>
                     <th className="py-3 px-3 font-bold">Level</th>
                     <th className="py-3 px-3 font-bold">Trial</th>
+                    <th className="py-3 px-3 font-bold">Question Result</th>
                     <th className="py-3 px-3 font-bold">Words ($l)</th>
                     <th className="py-3 px-3 font-bold">Total Time ($totalTime)</th>
                     <th className="py-3 px-3 font-bold">
-                      Sentence (%sentence) &amp; Word RTs (&amp;&amp;reactionTimes)
+                      Sentence (%sentence), Question &amp; Word RTs (&amp;&amp;reactionTimes)
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/30">
                   {displayedResults.map((row, idx) => (
                     <tr key={idx} className="align-top">
-                      <td className="py-4 pr-4 font-mono font-bold whitespace-nowrap">
+                      <td className="py-4 pr-3 font-mono font-bold whitespace-nowrap">
                         {row.isPractice ? `${row.testGroup} (Practice)` : row.testGroup}
                       </td>
                       <td className="py-4 px-3 font-mono whitespace-nowrap">
@@ -615,6 +693,21 @@ export default function App() {
                       <td className="py-4 px-3 font-mono whitespace-nowrap">
                         {row.isPractice ? `P${row.trialNumber}` : `#${row.trialNumber}`}
                       </td>
+                      <td className="py-4 px-3 whitespace-nowrap">
+                        <span
+                          className={`inline-block font-mono font-bold px-2 py-0.5 border border-black ${
+                            row.isCorrect ? 'bg-black text-white' : 'bg-white text-black'
+                          }`}
+                        >
+                          {row.isCorrect ? 'Right' : 'Wrong'}
+                        </span>
+                        <div className="text-xs mt-1">
+                          Ans: <strong>{row.userAnswer}</strong>
+                          {!row.isCorrect && (
+                            <span className="block">Key: {row.correctAnswer}</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-4 px-3 font-mono tabular-nums whitespace-nowrap">
                         {row.wordCount}
                       </td>
@@ -622,7 +715,10 @@ export default function App() {
                         {row.totalTime} ms
                       </td>
                       <td className="py-4 px-3">
-                        <p className="font-medium text-base mb-2">{row.sentence}</p>
+                        <p className="font-medium text-base mb-1">{row.sentence}</p>
+                        <p className="text-xs mb-2">
+                          Q: <em>{row.questionPrompt}</em>
+                        </p>
                         <div className="flex flex-wrap gap-2">
                           {row.words.map((w, wIdx) => (
                             <span

@@ -10,8 +10,12 @@ export interface MultipleChoiceQuestion {
 export interface SentenceItem {
   sentence: string;
   level: QuestionLevel;
-  /** Used for Practice and Level 1 sentences ("Did the word ~~~ appear in the sentence?") */
+  /** Used for Practice sentences ("Did the word ~~~ appear in the sentence?") */
   targetWord?: string;
+  /** Single-word topic used for Level 1 sentences ("Is this sentence about ~~~?") */
+  aboutTopic?: string;
+  /** Expected answer (true = Yes, false = No) for Practice and Level 1 Yes/No questions */
+  correctYesNo?: boolean;
   /** Used for Level 2 sentences (4-option theme question with one correct answer) */
   themeQuestion?: MultipleChoiceQuestion;
 }
@@ -25,11 +29,13 @@ export const PRACTICE_SENTENCES: SentenceItem[] = [
     sentence: 'Clara is looking after her pets',
     level: 1,
     targetWord: 'pets',
+    correctYesNo: true,
   },
   {
     sentence: 'Daisy likes gardening',
     level: 1,
     targetWord: 'cooking',
+    correctYesNo: false,
   },
 ];
 
@@ -40,28 +46,32 @@ export const PRACTICE_SENTENCES: SentenceItem[] = [
  */
 export const GRADED_TESTS: Record<TestGroup, SentenceItem[]> = {
   R1: [
-    // Level 1 (Sentences 1-4)
+    // Level 1 (Sentences 1-4): "Is this sentence about <one word>?"
     {
       sentence: 'While the singer sang the pop song played in the background.',
       level: 1,
-      targetWord: 'singer',
+      aboutTopic: 'music',
+      correctYesNo: true,
     },
     {
       sentence: 'After the teacher called the students ran into the classroom.',
       level: 1,
-      targetWord: 'classroom',
+      aboutTopic: 'school',
+      correctYesNo: true,
     },
     {
       sentence: 'After the student finished, the assignment was sent online.',
       level: 1,
-      targetWord: 'library',
+      aboutTopic: 'cooking',
+      correctYesNo: false,
     },
     {
       sentence: 'While the nurse treated, the patient slept in the recovery room.',
       level: 1,
-      targetWord: 'medicine',
+      aboutTopic: 'farming',
+      correctYesNo: false,
     },
-    // Level 2 (Sentences 5-8)
+    // Level 2 (Sentences 5-8): 4-option theme questions
     {
       sentence: 'After the tourist visited the museum closed for the day.',
       level: 2,
@@ -116,28 +126,32 @@ export const GRADED_TESTS: Record<TestGroup, SentenceItem[]> = {
   ],
 
   R2: [
-    // Level 1 (Sentences 1-4)
+    // Level 1 (Sentences 1-4): "Is this sentence about <one word>?"
     {
       sentence: 'While the chef cooked the soup spilled on the floor.',
       level: 1,
-      targetWord: 'soup',
+      aboutTopic: 'cooking',
+      correctYesNo: true,
     },
     {
       sentence: 'While the coach trained the athletes rested in the locker room.',
       level: 1,
-      targetWord: 'athletes',
+      aboutTopic: 'sports',
+      correctYesNo: true,
     },
     {
       sentence: 'While the singer sang, the pop song played in the background.',
       level: 1,
-      targetWord: 'guitar',
+      aboutTopic: 'gardening',
+      correctYesNo: false,
     },
     {
       sentence: 'After the teacher called, the students ran into the classroom.',
       level: 1,
-      targetWord: 'homework',
+      aboutTopic: 'swimming',
+      correctYesNo: false,
     },
-    // Level 2 (Sentences 5-8)
+    // Level 2 (Sentences 5-8): 4-option theme questions
     {
       sentence: 'After the student finished the assignment was sent online.',
       level: 2,
@@ -187,28 +201,32 @@ export const GRADED_TESTS: Record<TestGroup, SentenceItem[]> = {
   ],
 
   R3: [
-    // Level 1 (Sentences 1-4)
+    // Level 1 (Sentences 1-4): "Is this sentence about <one word>?"
     {
       sentence: 'After the tourist visited the museum closed for the day.',
       level: 1,
-      targetWord: 'museum',
+      aboutTopic: 'sightseeing',
+      correctYesNo: true,
     },
     {
       sentence: 'While the manager interviewed the employees waited outside.',
       level: 1,
-      targetWord: 'employees',
+      aboutTopic: 'employment',
+      correctYesNo: true,
     },
     {
       sentence: 'While the chef cooked, the soup spilled on the floor.',
       level: 1,
-      targetWord: 'kitchen',
+      aboutTopic: 'astronomy',
+      correctYesNo: false,
     },
     {
       sentence: 'While the coach trained, the athletes rested in the locker room.',
       level: 1,
-      targetWord: 'stadium',
+      aboutTopic: 'painting',
+      correctYesNo: false,
     },
-    // Level 2 (Sentences 5-8)
+    // Level 2 (Sentences 5-8): 4-option theme questions
     {
       sentence: 'While the singer sang the pop song played in the background.',
       level: 2,
@@ -263,28 +281,32 @@ export const GRADED_TESTS: Record<TestGroup, SentenceItem[]> = {
   ],
 
   R4: [
-    // Level 1 (Sentences 1-4)
+    // Level 1 (Sentences 1-4): "Is this sentence about <one word>?"
     {
       sentence: 'After the student finished the assignment was sent online.',
       level: 1,
-      targetWord: 'assignment',
+      aboutTopic: 'homework',
+      correctYesNo: true,
     },
     {
       sentence: 'While the nurse treated the patient slept in the recovery room.',
       level: 1,
-      targetWord: 'patient',
+      aboutTopic: 'healthcare',
+      correctYesNo: true,
     },
     {
       sentence: 'After the tourist visited, the museum closed for the day.',
       level: 1,
-      targetWord: 'ticket',
+      aboutTopic: 'baking',
+      correctYesNo: false,
     },
     {
       sentence: 'While the manager interviewed, the employees waited outside.',
       level: 1,
-      targetWord: 'office',
+      aboutTopic: 'camping',
+      correctYesNo: false,
     },
-    // Level 2 (Sentences 5-8)
+    // Level 2 (Sentences 5-8): 4-option theme questions
     {
       sentence: 'While the chef cooked the soup spilled on the floor.',
       level: 2,
